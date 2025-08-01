@@ -1,0 +1,34 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: models-as-a-service
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
+        revision: main
+        directories:
+          - path: ai-accelerator-examples-maas/examples/models-as-a-service/components/*
+  template:
+    metadata:
+      name: '{{path.basename}}'
+      labels:
+        app.kubernetes.io/part-of: models-as-a-service
+    spec:
+      project: models-as-a-service
+      source:
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
+        targetRevision: main
+        path: '{{path}}'
+        helm:
+          valueFiles:
+            - values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true 

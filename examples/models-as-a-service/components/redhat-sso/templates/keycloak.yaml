@@ -1,0 +1,14 @@
+apiVersion: keycloak.org/v1alpha1
+kind: Keycloak
+metadata:
+  name: {{ .Values.keycloak.name | default "rh-sso" }}
+  namespace: {{ .Values.namespace | default "rh-sso" }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "0"
+  labels:
+    app: {{ .Values.keycloak.name | default "rh-sso" }}
+spec:
+  externalAccess:
+    enabled: true
+  instances: 1

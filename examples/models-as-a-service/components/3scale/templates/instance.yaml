@@ -1,0 +1,29 @@
+apiVersion: apps.3scale.net/v1alpha1
+kind: APIManager
+metadata:
+  name: apimanager
+  namespace: {{ .Values.namespace | default "3scale" }}
+  annotations:
+    "helm.sh/hook": "post-install,post-upgrade"
+    "helm.sh/hook-weight": "0"
+spec:
+  wildcardDomain: {{ .Values.wildcardDomain }}
+  resourceRequirementsEnabled: false
+  tenantName: maas
+  system:
+    fileStorage:
+      persistentVolumeClaim:
+        storageClassName: {{ .Values.storageClassName | default "ocs-storagecluster-cephfs" }}
+  apicast:
+    stagingSpec:
+      customPolicies:
+        - name: llm-metrics
+          version: "0.1"
+          secretRef:
+             name: llm-metrics
+    productionSpec:
+      customPolicies:
+        - name: llm-metrics
+          version: "0.1"
+          secretRef:
+             name: llm-metrics 
