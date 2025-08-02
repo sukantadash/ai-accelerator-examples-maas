@@ -7,7 +7,7 @@ namespace: 3scale
 channel: threescale-2.15
 
 # wildcardDomain: The wildcard domain for the 3scale API manager
-wildcardDomain: <wildcard-domain>
+wildcardDomain: apps.cluster-k7jk7.k7jk7.sandbox2654.opentlc.com
 
 # storageClassName: The storage class for the 3scale system file storage
-storageClassName: <storage-class> 
+storageClassName: ocs-storagecluster-cephfs 

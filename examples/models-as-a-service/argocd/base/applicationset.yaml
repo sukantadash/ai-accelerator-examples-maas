@@ -8,7 +8,7 @@ spec:
         repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
         revision: main
         directories:
-          - path: ai-accelerator-examples-maas/examples/models-as-a-service/components/*
+          - path: examples/models-as-a-service/components/*
   template:
     metadata:
       name: '{{path.basename}}'
