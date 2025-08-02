@@ -1,11 +1,10 @@
-apiVersion: operators.coreos.com/v1
+apiVersion: operators.coreos.com/v1alpha1
 kind: OperatorGroup
 metadata:
   name: 3scale-operator-group
-  namespace: {{ .Values.namespace | default "3scale" }}
+  namespace: {{ .Values.namespace }}
   annotations:
-    "helm.sh/hook": "pre-install,pre-upgrade"
-    "helm.sh/hook-weight": "-10"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   targetNamespaces:
-  - {{ .Values.namespace | default "3scale" }} 
+  - {{ .Values.namespace }} 
