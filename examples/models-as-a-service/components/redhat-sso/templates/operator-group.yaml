@@ -1,0 +1,11 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhsso-operator-group
+  namespace: {{ .Values.namespace | default "rh-sso" }}
+  annotations:
+    "helm.sh/hook": "pre-install,pre-upgrade"
+    "helm.sh/hook-weight": "-10"
+spec:
+  targetNamespaces:
+  - {{ .Values.namespace | default "rh-sso" }} 
