@@ -59,6 +59,14 @@ prerequisite() {
 
 post-install-steps() {
     echo "--- Running post-install steps for Models as a Service ---"
+
+    # Wait for 3scale namespace to be created
+    echo "Waiting for the 3scale namespace to be created..."
+    until oc get namespace 3scale &> /dev/null; do
+        echo "Namespace '3scale' not found. Waiting..."
+        sleep 10
+    done
+    echo "Namespace '3scale' found."
     
     # Wait for 3scale to be ready
     echo "Waiting for 3scale APIManager to be ready..."
@@ -74,19 +82,19 @@ post-install-steps() {
     echo "Press enter to continue after you have configured 3scale..."
     read
 
-    # Get RH-SSO credentials
-    echo "Waiting for RH-SSO Keycloak to be ready..."
-    oc wait --for=condition=Ready --timeout=15m keycloak/rh-sso -n rh-sso
+    # Get REDHAT-SSO credentials
+    echo "Waiting for REDHAT-SSO Keycloak to be ready..."
+    oc wait --for=condition=Ready --timeout=15m keycloak/redhat-sso -n redhat-sso
     
-    RHSSO_ADMIN_USER=$(oc get secret credential-rh-sso -n rh-sso -o jsonpath='{.data.ADMIN_USERNAME}' | base64 -d)
-    RHSSO_ADMIN_PASS=$(oc get secret credential-rh-sso -n rh-sso -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d)
-    RHSSO_URL=$(oc get route keycloak -n rh-sso -o jsonpath='{.spec.host}')
-    echo "RH-SSO Admin URL: https://${RHSSO_URL}/auth/admin/maas/console/"
-    echo "RH-SSO Admin User: ${RHSSO_ADMIN_USER}"
-    echo "RH-SSO Admin Password: ${RHSSO_ADMIN_PASS}"
+    REDHATSSO_ADMIN_USER=$(oc get secret credential-redhat-sso -n redhat-sso -o jsonpath='{.data.ADMIN_USERNAME}' | base64 -d)
+    REDHATSSO_ADMIN_PASS=$(oc get secret credential-redhat-sso -n redhat-sso -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d)
+    REDHATSSO_URL=$(oc get route keycloak -n redhat-sso -o jsonpath='{.spec.host}')
+    echo "REDHAT-SSO Admin URL: https://${REDHATSSO_URL}/auth/admin/maas/console/"
+    echo "REDHAT-SSO Admin User: ${REDHATSSO_ADMIN_USER}"
+    echo "REDHAT-SSO Admin Password: ${REDHATSSO_ADMIN_PASS}"
     echo
-    echo "Please follow the RH-SSO configuration steps from the README to create a client for 3scale and configure the identity provider."
-    echo "Press enter to continue after you have configured RH-SSO and linked it in 3scale..."
+    echo "Please follow the REDHAT-SSO configuration steps from the README to create a client for 3scale and configure the identity provider."
+    echo "Press enter to continue after you have configured REDHAT-SSO and linked it in 3scale..."
     read
 
     # Display test commands
@@ -137,6 +145,9 @@ update_developer_portal() {
         read -p "Press enter to continue or Ctrl+C to abort."
         return
     fi
+    echo "Clean up developer portal content... This may take a moment."
+    podman run --userns=keep-id:uid=185 -it --rm -v "${PORTAL_DIR}":/cms:Z ghcr.io/fwmotion/3scale-cms:latest \
+        -k --access-token="${ACCESS_TOKEN}" "https://${ADMIN_HOST}" delete
 
     echo "Updating developer portal content... This may take a moment."
     podman run --userns=keep-id:uid=185 -it --rm -v "${PORTAL_DIR}":/cms:Z ghcr.io/fwmotion/3scale-cms:latest \
