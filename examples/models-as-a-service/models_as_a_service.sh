@@ -1,20 +1,23 @@
 #!/bin/bash
+set -euo pipefail
 
 # This script contains prerequisite and post-install steps for the
 # Models as a Service example.
 
+# Function to check for required command-line tools
+check_commands() {
+    for cmd in "$@"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            echo "Error: ${cmd} is not installed. Please install it to continue."
+            exit 1
+        fi
+    done
+}
+
 prerequisite() {
     echo "--- Running prerequisite steps for Models as a Service ---"
 
-    if ! command -v jq &> /dev/null; then
-        echo "Error: jq is not installed. Please install it to continue."
-        exit 1
-    fi
-    if ! command -v yq &> /dev/null;
-    then
-        echo "Error: yq is not installed. Please install it to continue."
-        exit 1
-    fi
+    check_commands jq yq oc git podman
 
     # 3scale RWX Storage check
     echo "The 3scale operator requires a storage class with ReadWriteMany (RWX) access mode."
@@ -36,12 +39,10 @@ prerequisite() {
 
     # Update wildcard domain
     echo "Discovering cluster wildcard domain..."
-    CONSOLE_URL=$(oc whoami --show-console)
-    WILDCARD_DOMAIN=$(echo "${CONSOLE_URL}" | sed -n 's/.*\.//p' | cut -d'/' -f1)
-    if [ -z "$WILDCARD_DOMAIN" ]; then
+    WILDCARD_DOMAIN_APPS=$(oc get ingresscontroller -n openshift-ingress-operator default -o jsonpath='{.status.domain}')
+    if [ -z "$WILDCARD_DOMAIN_APPS" ]; then
         echo "Could not automatically determine wildcard domain. Please update ${VALUES_YAML_3SCALE_PATH} manually."
     else
-        WILDCARD_DOMAIN_APPS=$(echo $CONSOLE_URL | sed 's/https.*console-openshift-console\.//' | sed 's/\/$//')
         echo "Found wildcard domain: ${WILDCARD_DOMAIN_APPS}"
         echo "Updating 3scale instance with wildcard domain..."
         yq e -i '.wildcardDomain = "'"${WILDCARD_DOMAIN_APPS}"'"' "$VALUES_YAML_3SCALE_PATH"
@@ -81,12 +82,7 @@ prerequisite() {
     read -p "Do you want to commit and push the configuration changes to your repository? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        read -p "Enter your Git username: " GIT_USER
-        read -s -p "Enter your Git password or personal access token: " GIT_TOKEN
-        echo
-
-        # Construct the push URL with credentials
-        PUSH_REPO_URL=$(echo "${CURRENT_REPO_URL}" | sed "s|https://|https://${GIT_USER}:${GIT_TOKEN}@|")
+        git config --global credential.helper 'cache --timeout=3600'
 
         git add "${VALUES_YAML_3SCALE_PATH}" "${APPLICATIONSET_YAML_PATH}"
         
@@ -96,7 +92,7 @@ prerequisite() {
         else
             git commit -m "Update MaaS configuration for deployment"
             echo "Pushing changes to branch '${CURRENT_BRANCH}'..."
-            if git push "${PUSH_REPO_URL}" "HEAD:${CURRENT_BRANCH}"; then
+            if git push origin "HEAD:${CURRENT_BRANCH}"; then
                 echo "Configuration pushed to repository successfully."
             else
                 echo "Error: Failed to push configuration to repository."
@@ -113,6 +109,12 @@ prerequisite() {
 
 post-install-steps() {
     echo "--- Running post-install steps for Models as a Service ---"
+
+    # Define common curl options.
+    # WARNING: Using -k to disable certificate validation is a security risk.
+    # This should only be used in trusted, controlled development environments.
+    # In production, you should ensure proper certificates are configured.
+    CURL_OPTS=("-s" "-k")
 
     # Wait for 3scale namespace to be created
     echo "Waiting for the 3scale namespace to be created..."
@@ -172,6 +174,10 @@ post-install-steps() {
     read
 
     configure_keycloak_client
+    if [ $? -ne 0 ]; then
+        echo "Keycloak configuration failed. Aborting post-install steps."
+        return 1
+    fi
 
     echo "Retrieving 3scale admin access token and host..."
     ACCESS_TOKEN=$(oc get secret system-seed -n 3scale -o jsonpath='{.data.ADMIN_ACCESS_TOKEN}' | base64 -d)
@@ -200,6 +206,9 @@ post-install-steps() {
     echo "--- Post-install steps completed! ---"
     
     handle_model_registration_loop
+
+    # Clean up the temp file if it exists
+    rm -f -- "${RESPONSE_FILE-}"
 }
 
 update_developer_portal() {
@@ -229,7 +238,7 @@ configure_keycloak_client() {
     echo "--- Configuring Keycloak client for 3scale ---"
 
     echo "Getting Keycloak admin token..."
-    KEYCLOAK_TOKEN=$(curl -s -k -X POST "https://${REDHATSSO_URL}/auth/realms/master/protocol/openid-connect/token" \
+    KEYCLOAK_TOKEN=$(curl "${CURL_OPTS[@]}" -X POST "https://${REDHATSSO_URL}/auth/realms/master/protocol/openid-connect/token" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "username=${REDHATSSO_ADMIN_USER}" \
         -d "password=${REDHATSSO_ADMIN_PASS}" \
@@ -245,7 +254,7 @@ configure_keycloak_client() {
     REALM="maas"
 
     echo "Checking if client '3scale' exists in realm '${REALM}'..."
-    CLIENT_ID_3SCALE=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients?clientId=3scale" \
+    CLIENT_ID_3SCALE=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients?clientId=3scale" \
         -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[0].id')
 
     if [ -n "$CLIENT_ID_3SCALE" ] && [ "$CLIENT_ID_3SCALE" != "null" ]; then
@@ -268,12 +277,12 @@ configure_keycloak_client() {
 EOF
 )
         
-        curl -s -k -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients" \
+        curl "${CURL_OPTS[@]}" -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${CREATE_CLIENT_PAYLOAD}"
 
-        CLIENT_ID_3SCALE=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients?clientId=3scale" \
+        CLIENT_ID_3SCALE=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients?clientId=3scale" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[0].id')
         
         if [ -z "$CLIENT_ID_3SCALE" ] || [ "$CLIENT_ID_3SCALE" == "null" ]; then
@@ -283,15 +292,10 @@ EOF
         echo "Client '3scale' created with ID: ${CLIENT_ID_3SCALE}."
     fi
 
-    CLIENT_SECRET=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/client-secret" \
-        -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.value')
-    echo "Client '3scale' secret: ${CLIENT_SECRET}"
-    echo "This secret will be used to configure 3scale."
-
     echo "Adding protocol mappers..."
 
     # Check for 'email verified' mapper
-    MAPPER_EXISTS=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
+    MAPPER_EXISTS=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
         -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[] | select(.name=="email verified") | .name')
 
     if [ -n "$MAPPER_EXISTS" ]; then
@@ -314,7 +318,7 @@ EOF
 }
 EOF
 )
-        curl -s -k -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
+        curl "${CURL_OPTS[@]}" -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${EMAIL_VERIFIED_MAPPER_PAYLOAD}"
@@ -322,7 +326,7 @@ EOF
     fi
 
     # Check for 'org_type' mapper
-    MAPPER_EXISTS=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
+    MAPPER_EXISTS=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
         -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[] | select(.name=="org_type") | .name')
 
     if [ -n "$MAPPER_EXISTS" ]; then
@@ -346,7 +350,7 @@ EOF
 }
 EOF
 )
-        curl -s -k -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
+        curl "${CURL_OPTS[@]}" -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/clients/${CLIENT_ID_3SCALE}/protocol-mappers/models" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${ORG_TYPE_MAPPER_PAYLOAD}"
@@ -354,7 +358,7 @@ EOF
     fi
 
     echo "--- Creating developer user ---"
-    USER_ID=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users?username=developer&exact=true" \
+    USER_ID=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users?username=developer&exact=true" \
         -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[0].id')
 
     if [ -n "$USER_ID" ] && [ "$USER_ID" != "null" ]; then
@@ -372,12 +376,12 @@ EOF
 }
 EOF
 )
-        curl -s -k -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users" \
+        curl "${CURL_OPTS[@]}" -X POST "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${CREATE_USER_PAYLOAD}"
 
-        USER_ID=$(curl -s -k -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users?username=developer&exact=true" \
+        USER_ID=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users?username=developer&exact=true" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[0].id')
         
         if [ -z "$USER_ID" ] || [ "$USER_ID" == "null" ]; then
@@ -395,7 +399,7 @@ EOF
 }
 EOF
 )
-        curl -s -k -X PUT "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users/${USER_ID}/reset-password" \
+        curl "${CURL_OPTS[@]}" -X PUT "https://${REDHATSSO_URL}/auth/admin/realms/${REALM}/users/${USER_ID}/reset-password" \
             -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${SET_PASSWORD_PAYLOAD}"
@@ -411,12 +415,11 @@ EOF
 configure_sso_developer_portal() {
     echo "--- Configuring 3scale Developer Portal SSO ---"
 
-    local RESPONSE_FILE
     RESPONSE_FILE=$(mktemp)
-    trap 'rm -f -- "$RESPONSE_FILE"' RETURN
+    trap 'rm -f -- "$RESPONSE_FILE"' EXIT
 
     local HTTP_CODE
-    HTTP_CODE=$(curl -s -k -w "%{http_code}" -o "${RESPONSE_FILE}" "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}")
+    HTTP_CODE=$(curl "${CURL_OPTS[@]}" -w "%{http_code}" -o "${RESPONSE_FILE}" "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}")
 
     if [[ "$HTTP_CODE" -ge 400 ]]; then
         echo "Error: Failed to get Authentication Providers. Received HTTP status ${HTTP_CODE}."
@@ -431,12 +434,14 @@ configure_sso_developer_portal() {
     if [ -n "$SSO_INTEGRATION_EXISTS" ]; then
         echo "RH-SSO integration already exists. Skipping creation."
     else
-        if [ -z "$CLIENT_SECRET" ]; then
+        echo "Creating RH-SSO integration..."
+        local CLIENT_SECRET
+        CLIENT_SECRET=$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/maas/clients/$(curl "${CURL_OPTS[@]}" -X GET "https://${REDHATSSO_URL}/auth/admin/realms/maas/clients?clientId=3scale" -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.[0].id')/client-secret" -H "Authorization: Bearer ${KEYCLOAK_TOKEN}" | jq -r '.value')
+        if [ -z "$CLIENT_SECRET" ] || [ "$CLIENT_SECRET" == "null" ]; then
             echo "Error: CLIENT_SECRET is not set. Cannot create SSO integration."
             return 1
         fi
-        echo "Creating RH-SSO integration..."
-        HTTP_CODE=$(curl -s -k -w "%{http_code}" -o "${RESPONSE_FILE}" \
+        HTTP_CODE=$(curl "${CURL_OPTS[@]}" -w "%{http_code}" -o "${RESPONSE_FILE}" \
             -X POST "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "kind=keycloak" \
@@ -456,7 +461,7 @@ configure_sso_developer_portal() {
     fi
 
     local AUTH_PROVIDER_ID
-    AUTH_PROVIDER_ID=$(curl -s -k -X GET "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}" | yq -p xml -o json | jq -r '[.authentication_providers.authentication_provider?] | flatten | .[] | select(.kind? == "keycloak") | .id')
+    AUTH_PROVIDER_ID=$(curl "${CURL_OPTS[@]}" -X GET "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}" | yq -p xml -o json | jq -r '[.authentication_providers.authentication_provider?] | flatten | .[] | select(.kind? == "keycloak") | .id')
     
     if [ -z "$AUTH_PROVIDER_ID" ]; then
         echo "Failed to retrieve Authentication Provider ID. Cannot update 'Always approve accounts'."
@@ -464,7 +469,7 @@ configure_sso_developer_portal() {
     fi
 
     echo "Updating RH-SSO integration to always approve accounts..."
-    HTTP_CODE=$(curl -s -k -w "%{http_code}" -o "${RESPONSE_FILE}" \
+    HTTP_CODE=$(curl "${CURL_OPTS[@]}" -w "%{http_code}" -o "${RESPONSE_FILE}" \
         -X PUT "https://${ADMIN_HOST}/admin/api/authentication_providers/${AUTH_PROVIDER_ID}.xml?access_token=${ACCESS_TOKEN}" \
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "automatically_approve_accounts=true")
@@ -524,13 +529,13 @@ register_model_3scale_core() {
 
     # 1. Create or get Backend
     echo "Checking for existing backend '${model_name}'..."
-    BACKEND_ID=$(curl -s -k "https://${ADMIN_HOST}/admin/api/backend_apis.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${model_name}" '.backend_apis[] | .backend_api | select(.name == $name) | .id')
+    BACKEND_ID=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/backend_apis.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${model_name}" '.backend_apis[] | .backend_api | select(.name == $name) | .id')
 
     if [ -n "$BACKEND_ID" ] && [ "$BACKEND_ID" != "null" ]; then
         echo "Backend '${model_name}' already exists with ID: ${BACKEND_ID}."
     else
         echo "Creating backend '${model_name}'..."
-        BACKEND_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/backend_apis.json" \
+        BACKEND_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/backend_apis.json" \
             -d "access_token=${ACCESS_TOKEN}" \
             -d "name=${model_name}" \
             -d "private_endpoint=${model_url}")
@@ -549,13 +554,13 @@ register_model_3scale_core() {
 
     # 2. Create or get Product
     echo "Checking for existing product '${model_name}'..."
-    PRODUCT_ID=$(curl -s -k "https://${ADMIN_HOST}/admin/api/services.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${model_name}" '.services[] | .service | select(.name == $name) | .id')
+    PRODUCT_ID=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/services.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${model_name}" '.services[] | .service | select(.name == $name) | .id')
 
     if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
         echo "Product '${model_name}' already exists with ID: ${PRODUCT_ID}."
     else
         echo "Creating product '${model_name}'..."
-        PRODUCT_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services.json" \
+        PRODUCT_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services.json" \
             -d "access_token=${ACCESS_TOKEN}" \
             -d "name=${model_name}")
             
@@ -574,14 +579,14 @@ register_model_3scale_core() {
     # 3. Configure Product
     echo "Configuring product..."
     # 3.1 Update proxy settings
-    curl -s -k -X PATCH "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy.json" \
+    curl "${CURL_OPTS[@]}" -X PATCH "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "credentials_location=headers" \
         -d "auth_user_key=Authorization" > /dev/null
 
     # 3.2 Link backend to product
     echo "Linking backend to product..."
-    LINK_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/backend_usages.json" \
+    LINK_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/backend_usages.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "backend_api_id=${BACKEND_ID}" \
         -d "path=/")
@@ -602,13 +607,13 @@ register_model_3scale_core() {
     # 3.3 Add Policies
     echo "Adding policies..."
     POLICIES_CONFIG='[{"name":"cors", "version":"1.0.0", "configuration":{"allow_methods":["GET","POST","DELETE","PUT","PATCH","HEAD","OPTIONS"],"allow_credentials":true,"allow_origin":"*","allow_headers":["Authorization","Content-type","Accept"]}, "enabled":true}, {"name":"apicast", "version":"builtin", "configuration":{}, "enabled":true}]'
-    curl -s -k -X PUT "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/policies.json" \
+    curl "${CURL_OPTS[@]}" -X PUT "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/policies.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "policies_config=${POLICIES_CONFIG}" > /dev/null
 
     # 3.4 Add Methods and Mapping Rules
     echo "Adding methods and mapping rules..."
-    HITS_METRIC_ID=$(curl -s -k "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics.json?access_token=${ACCESS_TOKEN}" | jq -r '.metrics[] | .metric | select(.system_name=="hits") | .id')
+    HITS_METRIC_ID=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics.json?access_token=${ACCESS_TOKEN}" | jq -r '.metrics[] | .metric | select(.system_name=="hits") | .id')
     if [ -z "$HITS_METRIC_ID" ] || [ "$HITS_METRIC_ID" == "null" ]; then
         echo "Error: Could not find 'hits' metric for product."
         return 1
@@ -617,7 +622,7 @@ register_model_3scale_core() {
     METHOD_SYSTEM_NAME="v1_chat_completions_${PRODUCT_ID}"
     FRIENDLY_NAME="v1/chat/completions_${PRODUCT_ID}"
     echo "Creating method '${FRIENDLY_NAME}' (system name: ${METHOD_SYSTEM_NAME})..."
-    METHOD_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics/${HITS_METRIC_ID}/methods.json" \
+    METHOD_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics/${HITS_METRIC_ID}/methods.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "friendly_name=${FRIENDLY_NAME}" \
         -d "system_name=${METHOD_SYSTEM_NAME}")
@@ -630,7 +635,7 @@ register_model_3scale_core() {
         echo "Method '${FRIENDLY_NAME}' created successfully."
     elif [ "$HTTP_CODE" -eq 422 ] && echo "${METHOD_BODY}" | jq -e 'tostring | contains("already taken")' > /dev/null; then
         echo "Method '${FRIENDLY_NAME}' already exists. Getting its ID..."
-        METHOD_ID=$(curl -s -k "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics/${HITS_METRIC_ID}/methods.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${METHOD_SYSTEM_NAME}" '.methods[] | .method | select(.system_name == $name) | .id')
+        METHOD_ID=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/metrics/${HITS_METRIC_ID}/methods.json?access_token=${ACCESS_TOKEN}" | jq -r --arg name "${METHOD_SYSTEM_NAME}" '.methods[] | .method | select(.system_name == $name) | .id')
     else
         echo "Failed to create method. HTTP Status: ${HTTP_CODE}. Response:"
         echo "${METHOD_BODY}"
@@ -643,7 +648,7 @@ register_model_3scale_core() {
     
     PATTERN="/v1/chat/completions"
     echo "Creating mapping rule for pattern '${PATTERN}'..."
-    MAPPING_RULE_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/mapping_rules.json" \
+    MAPPING_RULE_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/mapping_rules.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "http_method=POST" \
         -d "pattern=${PATTERN}" \
@@ -665,7 +670,7 @@ register_model_3scale_core() {
 
     # 4. Promote Configuration
     echo "Promoting configuration to staging..."
-    STAGING_DEPLOY_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/deploy.json" -d "access_token=${ACCESS_TOKEN}")
+    STAGING_DEPLOY_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/deploy.json" -d "access_token=${ACCESS_TOKEN}")
 
     HTTP_CODE=$(echo "${STAGING_DEPLOY_RESPONSE}" | tail -n1)
     STAGING_DEPLOY_BODY=$(echo "${STAGING_DEPLOY_RESPONSE}" | sed '$d')
@@ -676,7 +681,7 @@ register_model_3scale_core() {
         return 1
     fi
 
-    LATEST_STAGING_VERSION=$(curl -s -k "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/configs/sandbox/latest.json?access_token=${ACCESS_TOKEN}" | jq -r '.proxy_config.version')
+    LATEST_STAGING_VERSION=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/configs/sandbox/latest.json?access_token=${ACCESS_TOKEN}" | jq -r '.proxy_config.version')
     if [ -z "$LATEST_STAGING_VERSION" ] || [ "$LATEST_STAGING_VERSION" == "null" ]; then
         echo "Error: Failed to get latest staging version after deployment."
         return 1
@@ -684,7 +689,7 @@ register_model_3scale_core() {
     echo "Successfully deployed staging version ${LATEST_STAGING_VERSION}."
 
     echo "Promoting staging version ${LATEST_STAGING_VERSION} to production..."
-    PROMOTE_PROD_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/configs/sandbox/${LATEST_STAGING_VERSION}/promote.json" \
+    PROMOTE_PROD_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/proxy/configs/sandbox/${LATEST_STAGING_VERSION}/promote.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "to=production")
 
@@ -701,7 +706,7 @@ register_model_3scale_core() {
     # 5. Application Plans Configuration
     APP_PLAN_NAME="Basic"
     echo "Creating application plan '${APP_PLAN_NAME}'..."
-    APP_PLAN_RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/application_plans.json" \
+    APP_PLAN_RESPONSE=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/services/${PRODUCT_ID}/application_plans.json" \
         -d "access_token=${ACCESS_TOKEN}" \
         -d "name=${APP_PLAN_NAME}" \
         -d "state_event=publish")
@@ -735,7 +740,7 @@ activate_service_for_all_accounts() {
     # Get Plan ID for the service
     echo "Getting application plan ID for service ${product_id}..."
     local plan_id
-    plan_id=$(curl -s -k "https://${ADMIN_HOST}/admin/api/services/${product_id}/application_plans.json?access_token=${ACCESS_TOKEN}" | jq -r '.plans[] | .application_plan | select(.name == "Basic") | .id')
+    plan_id=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/services/${product_id}/application_plans.json?access_token=${ACCESS_TOKEN}" | jq -r '.plans[] | .application_plan | select(.name == "Basic") | .id')
 
     if [ -z "$plan_id" ] || [ "$plan_id" == "null" ]; then
         echo "Error: Could not find 'Basic' application plan for service ${product_id}."
@@ -750,7 +755,7 @@ activate_service_for_all_accounts() {
     local account_ids=()
     while [ "$page" -le "$total_pages" ]; do
         local accounts_response
-        accounts_response=$(curl -s -k "https://${ADMIN_HOST}/admin/api/accounts.json?access_token=${ACCESS_TOKEN}&page=${page}")
+        accounts_response=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/accounts.json?access_token=${ACCESS_TOKEN}&page=${page}")
         
         if [ "$page" -eq 1 ]; then
             total_pages=$(echo "${accounts_response}" | jq -r '.metadata.total_pages')
@@ -776,7 +781,7 @@ activate_service_for_all_accounts() {
         
         # Check if the account is already subscribed
         local subscribed_plans
-        subscribed_plans=$(curl -s -k "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications.json?access_token=${ACCESS_TOKEN}" | jq -r '.applications[].application.plan_id')
+        subscribed_plans=$(curl "${CURL_OPTS[@]}" "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications.json?access_token=${ACCESS_TOKEN}" | jq -r '.applications[].application.plan_id')
 
         if echo "${subscribed_plans}" | grep -q "${plan_id}"; then
             echo "  Account already subscribed to this plan. Skipping."
@@ -786,7 +791,7 @@ activate_service_for_all_accounts() {
 
         # Create dummy application to subscribe
         local app_response
-        app_response=$(curl -s -k -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications.json" \
+        app_response=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X POST "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications.json" \
             -d "access_token=${ACCESS_TOKEN}" \
             -d "plan_id=${plan_id}" \
             -d "name=dummy-activation-app-$(date +%s)")
@@ -809,7 +814,7 @@ activate_service_for_all_accounts() {
 
         # Delete dummy application
         local delete_response
-        delete_response=$(curl -s -k -w "\n%{http_code}" -X DELETE "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications/${app_id}.json?access_token=${ACCESS_TOKEN}")
+        delete_response=$(curl "${CURL_OPTS[@]}" -w "\n%{http_code}" -X DELETE "https://${ADMIN_HOST}/admin/api/accounts/${account_id}/applications/${app_id}.json?access_token=${ACCESS_TOKEN}")
         
         http_code=$(echo "${delete_response}" | tail -n1)
 
