@@ -5,17 +5,7 @@ metadata:
   namespace: {{ .Values.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-{{ $ic := (lookup "operator.openshift.io/v1" "IngressController" "openshift-ingress-operator" "default") }}
-{{ $domain := "" }}
-{{ if $ic }}
-{{ $status := (index $ic "status") }}
-{{ if $status }}
-{{ $domain = (index $status "domain") }}
-{{ end }}
-{{ end }}
-{{ $wildcardDomain := default .Values.wildcardDomain $domain }}
 spec:
-  wildcardDomain: '{{ $wildcardDomain }}'
   resourceRequirementsEnabled: false
   tenantName: maas
   system:
