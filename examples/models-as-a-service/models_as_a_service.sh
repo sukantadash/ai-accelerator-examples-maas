@@ -28,81 +28,81 @@ prerequisite() {
         echo "An RWX storage class is required. Please install OpenShift Data Foundation (ODF) or another RWX-capable storage solution and then re-run the script."
         exit 1
     fi
-
-    read -p "Please enter the name of the RWX storage class: " rwx_storage_class
-    while [ -z "$rwx_storage_class" ]; do
-        echo "Storage class name cannot be empty."
-        read -p "Please enter the name of the RWX storage class: " rwx_storage_class
-    done
-
-    VALUES_YAML_3SCALE_PATH="examples/models-as-a-service/components/3scale/values.yaml"
-
-    # Update wildcard domain
-    echo "Discovering cluster wildcard domain..."
-    WILDCARD_DOMAIN_APPS=$(oc get ingresscontroller -n openshift-ingress-operator default -o jsonpath='{.status.domain}')
-    if [ -z "$WILDCARD_DOMAIN_APPS" ]; then
-        echo "Could not automatically determine wildcard domain. Please update ${VALUES_YAML_3SCALE_PATH} manually."
-    else
-        echo "Found wildcard domain: ${WILDCARD_DOMAIN_APPS}"
-        echo "Updating 3scale instance with wildcard domain..."
-        yq e -i '.wildcardDomain = "'"${WILDCARD_DOMAIN_APPS}"'"' "$VALUES_YAML_3SCALE_PATH"
-        echo "File ${VALUES_YAML_3SCALE_PATH} updated."
-    fi
-
-    echo "Updating 3scale instance with storage class: ${rwx_storage_class}"
-    yq e -i '.storageClassName = "'"${rwx_storage_class}"'"' "$VALUES_YAML_3SCALE_PATH"
-    echo "File ${VALUES_YAML_3SCALE_PATH} updated."
-
-    # Update ApplicationSet with current Git repo and branch
-    echo "--- Updating ApplicationSet configuration ---"
-    APPLICATIONSET_YAML_PATH="examples/models-as-a-service/argocd/base/applicationset.yaml"
     
-    CURRENT_REPO_URL=$(git config --get remote.origin.url)
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    # read -p "Please enter the name of the RWX storage class: " rwx_storage_class
+    # while [ -z "$rwx_storage_class" ]; do
+    #     echo "Storage class name cannot be empty."
+    #     read -p "Please enter the name of the RWX storage class: " rwx_storage_class
+    # done
 
-    if [ -z "$CURRENT_REPO_URL" ] || [ -z "$CURRENT_BRANCH" ]; then
-        echo "Error: Could not determine current Git repository URL or branch."
-        echo "Please ensure you are in a valid Git repository."
-        return 1
-    fi
+    # VALUES_YAML_3SCALE_PATH="examples/models-as-a-service/components/3scale/values.yaml"
 
-    echo "Updating ApplicationSet to use your repository:"
-    echo "  Repo URL: ${CURRENT_REPO_URL}"
-    echo "  Branch: ${CURRENT_BRANCH}"
+    # # Update wildcard domain
+    # echo "Discovering cluster wildcard domain..."
+    # WILDCARD_DOMAIN_APPS=$(oc get ingresscontroller -n openshift-ingress-operator default -o jsonpath='{.status.domain}')
+    # if [ -z "$WILDCARD_DOMAIN_APPS" ]; then
+    #     echo "Could not automatically determine wildcard domain. Please update ${VALUES_YAML_3SCALE_PATH} manually."
+    # else
+    #     echo "Found wildcard domain: ${WILDCARD_DOMAIN_APPS}"
+    #     echo "Updating 3scale instance with wildcard domain..."
+    #     yq e -i '.wildcardDomain = "'"${WILDCARD_DOMAIN_APPS}"'"' "$VALUES_YAML_3SCALE_PATH"
+    #     echo "File ${VALUES_YAML_3SCALE_PATH} updated."
+    # fi
 
-    yq e -i '.spec.generators[0].git.repoURL = "'"${CURRENT_REPO_URL}"'"' "${APPLICATIONSET_YAML_PATH}"
-    yq e -i '.spec.generators[0].git.revision = "'"${CURRENT_BRANCH}"'"' "${APPLICATIONSET_YAML_PATH}"
-    yq e -i '.spec.template.spec.source.repoURL = "'"${CURRENT_REPO_URL}"'"' "${APPLICATIONSET_YAML_PATH}"
-    yq e -i '.spec.template.spec.source.targetRevision = "'"${CURRENT_BRANCH}"'"' "${APPLICATIONSET_YAML_PATH}"
+    # echo "Updating 3scale instance with storage class: ${rwx_storage_class}"
+    # yq e -i '.storageClassName = "'"${rwx_storage_class}"'"' "$VALUES_YAML_3SCALE_PATH"
+    # echo "File ${VALUES_YAML_3SCALE_PATH} updated."
 
-    echo "ApplicationSet updated successfully."
+    # # Update ApplicationSet with current Git repo and branch
+    # echo "--- Updating ApplicationSet configuration ---"
+    # APPLICATIONSET_YAML_PATH="examples/models-as-a-service/argocd/base/applicationset.yaml"
+    
+    # CURRENT_REPO_URL=$(git config --get remote.origin.url)
+    # CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-    # Commit and push changes
-    echo "--- Pushing configuration changes to Git ---"
-    read -p "Do you want to commit and push the configuration changes to your repository? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        git config --global credential.helper 'cache --timeout=3600'
+    # if [ -z "$CURRENT_REPO_URL" ] || [ -z "$CURRENT_BRANCH" ]; then
+    #     echo "Error: Could not determine current Git repository URL or branch."
+    #     echo "Please ensure you are in a valid Git repository."
+    #     return 1
+    # fi
 
-        git add "${VALUES_YAML_3SCALE_PATH}" "${APPLICATIONSET_YAML_PATH}"
+    # echo "Updating ApplicationSet to use your repository:"
+    # echo "  Repo URL: ${CURRENT_REPO_URL}"
+    # echo "  Branch: ${CURRENT_BRANCH}"
+
+    # yq e -i '.spec.generators[0].git.repoURL = "'"${CURRENT_REPO_URL}"'"' "${APPLICATIONSET_YAML_PATH}"
+    # yq e -i '.spec.generators[0].git.revision = "'"${CURRENT_BRANCH}"'"' "${APPLICATIONSET_YAML_PATH}"
+    # yq e -i '.spec.template.spec.source.repoURL = "'"${CURRENT_REPO_URL}"'"' "${APPLICATIONSET_YAML_PATH}"
+    # yq e -i '.spec.template.spec.source.targetRevision = "'"${CURRENT_BRANCH}"'"' "${APPLICATIONSET_YAML_PATH}"
+
+    # echo "ApplicationSet updated successfully."
+
+    # # Commit and push changes
+    # echo "--- Pushing configuration changes to Git ---"
+    # read -p "Do you want to commit and push the configuration changes to your repository? (y/n) " -n 1 -r
+    # echo
+    # if [[ $REPLY =~ ^[Yy]$ ]]; then
+    #     git config --global credential.helper 'cache --timeout=3600'
+
+    #     git add "${VALUES_YAML_3SCALE_PATH}" "${APPLICATIONSET_YAML_PATH}"
         
-        # Check if there are changes to commit
-        if git diff --staged --quiet; then
-            echo "No configuration changes to commit."
-        else
-            git commit -m "Update MaaS configuration for deployment"
-            echo "Pushing changes to branch '${CURRENT_BRANCH}'..."
-            if git push origin "HEAD:${CURRENT_BRANCH}"; then
-                echo "Configuration pushed to repository successfully."
-            else
-                echo "Error: Failed to push configuration to repository."
-                echo "Please check your credentials and ensure you have push permissions."
-                return 1
-            fi
-        fi
-    else
-        echo "Skipping Git push. Please commit and push the changes manually for the deployment to work correctly."
-    fi
+    #     # Check if there are changes to commit
+    #     if git diff --staged --quiet; then
+    #         echo "No configuration changes to commit."
+    #     else
+    #         git commit -m "Update MaaS configuration for deployment"
+    #         echo "Pushing changes to branch '${CURRENT_BRANCH}'..."
+    #         if git push origin "HEAD:${CURRENT_BRANCH}"; then
+    #             echo "Configuration pushed to repository successfully."
+    #         else
+    #             echo "Error: Failed to push configuration to repository."
+    #             echo "Please check your credentials and ensure you have push permissions."
+    #             return 1
+    #         fi
+    #     fi
+    # else
+    #     echo "Skipping Git push. Please commit and push the changes manually for the deployment to work correctly."
+    # fi
 
     echo "--- Prerequisite steps completed. ---"
 }
@@ -166,7 +166,7 @@ post-install-steps() {
     REDHATSSO_ADMIN_USER=$(oc get secret credential-redhat-sso -n redhat-sso -o jsonpath='{.data.ADMIN_USERNAME}' | base64 -d)
     REDHATSSO_ADMIN_PASS=$(oc get secret credential-redhat-sso -n redhat-sso -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d)
     REDHATSSO_URL=$(oc get route keycloak -n redhat-sso -o jsonpath='{.spec.host}')
-    echo "REDHAT-SSO Admin URL: https://${REDHATSSO_URL}/auth/admin/maas/console/"
+    echo "REDHAT-SSO Admin URL: https://${REDHATSSO_URL}"
     echo "REDHAT-SSO Admin User: ${REDHATSSO_ADMIN_USER}"
     echo "REDHAT-SSO Admin Password: ${REDHATSSO_ADMIN_PASS}"
     echo
@@ -423,6 +423,31 @@ configure_sso_developer_portal() {
 
     if [[ "$HTTP_CODE" -ge 400 ]]; then
         echo "Error: Failed to get Authentication Providers. Received HTTP status ${HTTP_CODE}."
+        echo "Response from server:"
+        cat "${RESPONSE_FILE}"
+        return 1
+    fi
+
+    # Disable Developer Portal access code (make portal publicly accessible)
+    echo "Disabling Developer Portal access code..."
+    HTTP_CODE=$(curl "${CURL_OPTS[@]}" -w "%{http_code}" -o "${RESPONSE_FILE}" \
+        -X PUT "https://${ADMIN_HOST}/admin/api/provider.xml" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "access_token=${ACCESS_TOKEN}" \
+        -d "site_access_code=")
+    if [[ "$HTTP_CODE" -ge 400 ]]; then
+        echo "Error: Failed to clear Developer Portal access code. HTTP ${HTTP_CODE}."
+        echo "Response from server:"
+        cat "${RESPONSE_FILE}"
+        return 1
+    else
+        echo "Developer Portal access code removed."
+    fi
+
+    # Re-fetch authentication providers after account update
+    HTTP_CODE=$(curl "${CURL_OPTS[@]}" -w "%{http_code}" -o "${RESPONSE_FILE}" "https://${ADMIN_HOST}/admin/api/authentication_providers.xml?access_token=${ACCESS_TOKEN}")
+    if [[ "$HTTP_CODE" -ge 400 ]]; then
+        echo "Error: Failed to refresh Authentication Providers. HTTP ${HTTP_CODE}."
         echo "Response from server:"
         cat "${RESPONSE_FILE}"
         return 1
