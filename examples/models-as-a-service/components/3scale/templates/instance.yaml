@@ -6,6 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
+  wildcardDomain: 'needtoreplace'
   resourceRequirementsEnabled: false
   tenantName: maas
   system:
