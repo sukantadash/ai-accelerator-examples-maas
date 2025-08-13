@@ -14,32 +14,8 @@ data:
     APIMANAGER_NAME="apimanager"
     NAMESPACE="{{ .Values.namespace | default "3scale" }}"
     
-    echo "Ensuring APIManager ${APIMANAGER_NAME} exists in namespace ${NAMESPACE}..."
-    until oc get apimanager ${APIMANAGER_NAME} -n ${NAMESPACE} >/dev/null 2>&1; do
-      echo "APIManager not found yet, sleeping for 5 seconds..."
-      sleep 5
-    done
-
-    echo "Discovering cluster wildcard domain..."
-    WILDCARD_DOMAIN_APPS=$(oc get ingresscontroller -n openshift-ingress-operator default -o jsonpath='{.status.domain}' || true)
-    if [ -z "${WILDCARD_DOMAIN_APPS}" ]; then
-      echo "Could not automatically determine wildcard domain from IngressController. Falling back to chart value if provided."
-      WILDCARD_DOMAIN_APPS="{{ .Values.wildcardDomain | default "" }}"
-    fi
-
-    if [ -z "${WILDCARD_DOMAIN_APPS}" ]; then
-      echo "No wildcard domain available to patch. Exiting without changes."
-    else
-      CURRENT_DOMAIN=$(oc get apimanager ${APIMANAGER_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.wildcardDomain}' || true)
-      if [ "${CURRENT_DOMAIN}" != "${WILDCARD_DOMAIN_APPS}" ]; then
-        echo "Patching APIManager wildcardDomain to ${WILDCARD_DOMAIN_APPS}..."
-        oc patch apimanager ${APIMANAGER_NAME} -n ${NAMESPACE} --type merge -p "{\"spec\":{\"wildcardDomain\":\"${WILDCARD_DOMAIN_APPS}\"}}"
-      else
-        echo "APIManager wildcardDomain already set to desired value (${CURRENT_DOMAIN}). Skipping patch."
-      fi
-    fi
-
     echo "Waiting for APIManager ${APIMANAGER_NAME} in namespace ${NAMESPACE} to be ready..."
+    
     while true; do
       READY=$(oc get apimanager ${APIMANAGER_NAME} -n ${NAMESPACE} -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
       if [[ "${READY}" == "True" ]]; then
