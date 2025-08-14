@@ -31,18 +31,20 @@ data:
     # Add your post-install commands here
     echo "Running post-install commands..."
 
-    # If wildcardDomain is already set (e.g., by ArgoCD overlay), skip patch
+    # Determine whether to patch wildcardDomain
     CURRENT_WILDCARD=$(oc get apimanager ${APIMANAGER_NAME} -n ${NAMESPACE} -o jsonpath='{.spec.wildcardDomain}' 2>/dev/null || true)
     SHOULD_PATCH="true"
-    if [[ -n "${CURRENT_WILDCARD}" ]]; then
+    if [[ "${CURRENT_WILDCARD}" == "Needtopatchit" ]]; then
+      echo "wildcardDomain is placeholder 'Needtopatchit'. Will patch with detected value."
+    elif [[ -n "${CURRENT_WILDCARD}" ]]; then
       echo "wildcardDomain is already set to '${CURRENT_WILDCARD}'. Skipping patch."
       SHOULD_PATCH="false"
     fi
 
     if [[ "${SHOULD_PATCH}" == "true" ]]; then
-      # Use configured wildcardDomain when provided; otherwise, try to auto-detect
+      # Use configured wildcardDomain when provided (and not the placeholder); otherwise, auto-detect
       DEFAULT_WILDCARD="{{ .Values.wildcardDomain | default "" }}"
-      if [[ -n "${DEFAULT_WILDCARD}" ]]; then
+      if [[ -n "${DEFAULT_WILDCARD}" && "${DEFAULT_WILDCARD}" != "Needtopatchit" ]]; then
         WILDCARD_DOMAIN="${DEFAULT_WILDCARD}"
         echo "Using provided wildcard domain: ${WILDCARD_DOMAIN}"
       else
