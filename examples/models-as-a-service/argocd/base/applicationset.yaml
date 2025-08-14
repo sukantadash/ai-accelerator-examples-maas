@@ -5,8 +5,10 @@ metadata:
 spec:
   generators:
     - git:
-        repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
-        revision: maas
+        #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
+        #revision: maas
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples.git
+        revision: main
         directories:
           - path: examples/models-as-a-service/components/*
   template:
@@ -17,8 +19,10 @@ spec:
     spec:
       project: models-as-a-service
       source:
-        repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
-        targetRevision: maas
+        #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
+        #targetRevision: maas
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples.git
+        targetRevision: main
         path: '{{path}}'
         helm:
           releaseName: '{{path.basename}}-release'
