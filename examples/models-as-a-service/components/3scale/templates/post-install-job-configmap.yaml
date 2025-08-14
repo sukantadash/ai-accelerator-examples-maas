@@ -48,16 +48,13 @@ data:
         WILDCARD_DOMAIN="${DEFAULT_WILDCARD}"
         echo "Using provided wildcard domain: ${WILDCARD_DOMAIN}"
       else
-        echo "Attempting to auto-detect wildcard domain from an existing Route..."
-        ROUTE_HOST=$(oc -n ${NAMESPACE} get route -l zync.3scale.net/route-to=system-provider -o jsonpath='{.items[0].spec.host}' 2>/dev/null || true)
-        if [[ -z "${ROUTE_HOST}" ]]; then
-          ROUTE_HOST=$(oc -n ${NAMESPACE} get route -o jsonpath='{.items[0].spec.host}' 2>/dev/null || true)
-        fi
-        if [[ -z "${ROUTE_HOST}" ]]; then
-          echo "Could not discover any Route host in namespace ${NAMESPACE}. Skipping wildcardDomain patch."
+        echo "Attempting to auto-detect wildcard domain from IngressController..."
+        WILDCARD_DOMAIN_APPS=$(oc get ingresscontroller -n openshift-ingress-operator default -o jsonpath='{.status.domain}' 2>/dev/null || true)
+        if [[ -z "${WILDCARD_DOMAIN_APPS}" ]]; then
+          echo "Could not discover wildcard domain from IngressController. Skipping wildcardDomain patch."
         else
-          WILDCARD_DOMAIN="${ROUTE_HOST#*.}"
-          echo "Derived wildcard domain: ${WILDCARD_DOMAIN} (from route host: ${ROUTE_HOST})"
+          WILDCARD_DOMAIN="${WILDCARD_DOMAIN_APPS}"
+          echo "Detected wildcard domain: ${WILDCARD_DOMAIN}"
         fi
       fi
 
