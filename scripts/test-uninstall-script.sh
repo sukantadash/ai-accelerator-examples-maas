@@ -1,8 +1,10 @@
 oc delete applicationset models-as-a-service -n openshift-gitops
 
 oc get csv -n 3scale | grep 3scale | awk '{print $1}' | xargs -I {} oc delete csv {} -n 3scale
+oc delete apimanager apimanager -n 3scale
 oc delete application.argoproj.io 3scale -n openshift-gitops
 oc delete namespace 3scale
+
 
 
 oc get csv -n redhat-sso | grep sso | awk '{print $1}' | xargs -I {} oc delete csv {} -n redhat-sso

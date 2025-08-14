@@ -7,7 +7,7 @@ spec:
     - git:
         #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
         #revision: maas
-        repoURL: https://github.com/sukantadash/ai-accelerator-examples.git
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
         revision: main
         directories:
           - path: examples/models-as-a-service/components/*
@@ -21,7 +21,7 @@ spec:
       source:
         #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
         #targetRevision: maas
-        repoURL: https://github.com/sukantadash/ai-accelerator-examples.git
+        repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
         targetRevision: main
         path: '{{path}}'
         helm:
