@@ -6,7 +6,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 spec:
-  wildcardDomain: '{{ .Values.wildcardDomain" }}'
+  wildcardDomain: {{ .Values.wildcardDomain }}
   resourceRequirementsEnabled: false
   tenantName: maas
   system:
