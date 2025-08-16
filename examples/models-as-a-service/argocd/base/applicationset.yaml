@@ -24,7 +24,7 @@ spec:
         #targetRevision: maas
         repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
         targetRevision: main
-        path: '{{ .path }}'
+        path: '{{ .path.path }}'
         helm:
           releaseName: '{{ .path.basename }}-release'
       destination:
