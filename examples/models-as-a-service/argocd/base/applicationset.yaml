@@ -3,7 +3,6 @@ kind: ApplicationSet
 metadata:
   name: models-as-a-service
 spec:
-  goTemplate: true
   generators:
     - git:
         #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
@@ -14,22 +13,22 @@ spec:
           - path: examples/models-as-a-service/components/*
   template:
     metadata:
-      name: '{{ .path.basename }}'
+      name: '{{path.basename}}'
       labels:
         app.kubernetes.io/part-of: models-as-a-service
     spec:
       project: models-as-a-service
       source:
         #repoURL: https://github.com/redhat-ai-services/ai-accelerator-examples.git
-        #targetRevision: maas
+        #revision: maas
         repoURL: https://github.com/sukantadash/ai-accelerator-examples-maas.git
-        targetRevision: main
-        path: '{{ .path }}'
+        revision: main
+        path: '{{path}}'
         helm:
-          releaseName: '{{ .path.basename }}-release'
+          releaseName: '{{path.basename}}-release'
       destination:
         server: https://kubernetes.default.svc
-        namespace: '{{ .path.basename | replace "-instance" "" | replace "-operator" "" }}'
+        namespace: '{{path.basename | replace "-instance" "" | replace "-operator" ""}}'
       syncPolicy:
         automated:
           prune: true
